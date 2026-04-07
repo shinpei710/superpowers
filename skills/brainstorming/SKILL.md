@@ -26,10 +26,11 @@ You MUST create a task for each of these items and complete them in order:
 3. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria
 4. **Propose 2-3 approaches** — with trade-offs and your recommendation
 5. **Present design** — in sections scaled to their complexity, get user approval after each section
-6. **Write design doc** — save to `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` and commit
-7. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
+6. **Write design doc** — save to `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`
+7. **Spec external review** — spawn a strict subagent to review the spec for placeholders, contradictions, ambiguity, and scope problems (see below)
 8. **User reviews written spec** — ask user to review the spec file before proceeding
-9. **Transition to implementation** — invoke writing-plans skill to create implementation plan
+9. **Commit approved spec** — commit only after external review fixes and user approval
+10. **Transition to implementation** — invoke writing-plans skill to create implementation plan
 
 ## Process Flow
 
@@ -43,8 +44,9 @@ digraph brainstorming {
     "Present design sections" [shape=box];
     "User approves design?" [shape=diamond];
     "Write design doc" [shape=box];
-    "Spec self-review\n(fix inline)" [shape=box];
+    "Spec external review\n(strict subagent)" [shape=box];
     "User reviews spec?" [shape=diamond];
+    "Commit approved spec" [shape=box];
     "Invoke writing-plans skill" [shape=doublecircle];
 
     "Explore project context" -> "Visual questions ahead?";
@@ -56,14 +58,15 @@ digraph brainstorming {
     "Present design sections" -> "User approves design?";
     "User approves design?" -> "Present design sections" [label="no, revise"];
     "User approves design?" -> "Write design doc" [label="yes"];
-    "Write design doc" -> "Spec self-review\n(fix inline)";
-    "Spec self-review\n(fix inline)" -> "User reviews spec?";
+    "Write design doc" -> "Spec external review\n(strict subagent)";
+    "Spec external review\n(strict subagent)" -> "User reviews spec?";
     "User reviews spec?" -> "Write design doc" [label="changes requested"];
-    "User reviews spec?" -> "Invoke writing-plans skill" [label="approved"];
+    "User reviews spec?" -> "Commit approved spec" [label="approved"];
+    "Commit approved spec" -> "Invoke writing-plans skill";
 }
 ```
 
-**The terminal state is invoking writing-plans.** Do NOT invoke frontend-design, mcp-builder, or any other implementation skill. The ONLY skill you invoke after brainstorming is writing-plans.
+**The terminal state is invoking writing-plans.** After the spec is externally reviewed, user-approved, and committed, do NOT invoke frontend-design, mcp-builder, or any other implementation skill. The ONLY next skill after that point is writing-plans.
 
 ## The Process
 
@@ -110,23 +113,35 @@ digraph brainstorming {
 
 - Write the validated design (spec) to `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`
   - (User preferences for spec location override this default)
-- Use elements-of-style:writing-clearly-and-concisely skill if available
-- Commit the design document to git
+- If git is installed but the current working directory is not a git repository, run `git init` before treating git as unavailable, unless the user explicitly says not to create a repository.
+- Commit the design document to git only after strict external review fixes and explicit user approval
 
-**Spec Self-Review:**
-After writing the spec document, look at it with fresh eyes:
+**Spec External Review:**
+After writing the spec document, spawn a strict subagent to review it. Do not use self-review as the primary quality gate.
 
 1. **Placeholder scan:** Any "TBD", "TODO", incomplete sections, or vague requirements? Fix them.
 2. **Internal consistency:** Do any sections contradict each other? Does the architecture match the feature descriptions?
 3. **Scope check:** Is this focused enough for a single implementation plan, or does it need decomposition?
 4. **Ambiguity check:** Could any requirement be interpreted two different ways? If so, pick one and make it explicit.
 
-Fix any issues inline. No need to re-review — just fix and move on.
+Review protocol:
+
+1. Use the environment's real subagent or delegation capability to create a separate reviewer agent. Do not simulate the review in the main agent.
+   - In Codex, use the available delegation tools such as `spawn_agent` and `wait_agent` when present.
+   - If the environment has no subagent capability, stop and tell the user the review gate is blocked. Do not silently skip it.
+2. Give the reviewer the spec file path and ask for findings only.
+3. Instruct the reviewer to be severe, skeptical, and explicit about weaknesses. It should try to break the spec rather than praise it.
+4. Require every finding to include a concrete file reference and why the issue matters.
+5. Wait for the reviewer result before proceeding.
+6. If the reviewer finds issues, stop. Fix them inline, then run another strict reviewer pass.
+7. Preserve review evidence in the conversation by pasting or summarizing the reviewer findings with file references.
+
+Fix any issues inline. If the review finds real issues, re-run a strict subagent review after revisions instead of marking it "good enough" yourself.
 
 **User Review Gate:**
-After the spec review loop passes, ask the user to review the written spec before proceeding:
+After the strict external review loop passes, ask the user to review the written spec before proceeding:
 
-> "Spec written and committed to `<path>`. Please review it and let me know if you want to make any changes before we start writing out the implementation plan."
+> "Spec written to `<path>` and reviewed by a strict subagent. Please review it and let me know if you want to make any changes before we commit it and start writing out the implementation plan."
 
 Wait for the user's response. If they request changes, make them and re-run the spec review loop. Only proceed once the user approves.
 
@@ -134,6 +149,16 @@ Wait for the user's response. If they request changes, make them and re-run the 
 
 - Invoke the writing-plans skill to create a detailed implementation plan
 - Do NOT invoke any other skill. writing-plans is the next step.
+
+**Blocking Conditions Before Implementation:**
+
+Do not proceed to implementation unless all of the following are true:
+
+1. The spec file exists at a concrete path.
+2. A strict external reviewer result exists in the conversation.
+3. The user has explicitly approved the written spec in the conversation.
+4. If git is available, the approved spec has been committed. If git is unavailable, say so explicitly before moving on.
+   - If git is installed but the directory is not yet a repository, initialize it with `git init` unless the user has said not to.
 
 ## Key Principles
 
